@@ -366,6 +366,25 @@
       }
     })();
 
+    // ---- notificações (ntfy.sh) ----
+    // Abra ?eu=1 uma vez no SEU aparelho pra ele nunca mais disparar avisos.
+    const NTFY_TOPIC = 'desculpa-fernanda-41bq76gk4yz3';
+    const params = new URLSearchParams(location.search);
+    try {
+      if (params.has('eu')) localStorage.setItem('sou-eu', '1');
+    } catch (_) {}
+    function souEu() {
+      try { return localStorage.getItem('sou-eu') === '1'; } catch (_) { return false; }
+    }
+    const isLocal = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    function notify(msg, opts = {}) {
+      if (souEu() || isLocal) return;
+      const q = new URLSearchParams({ title: 'desculpa-fernanda', tags: opts.tags || 'sparkling_heart', priority: opts.priority || '3' });
+      fetch('https://ntfy.sh/' + NTFY_TOPIC + '?' + q.toString(), { method: 'POST', body: msg, keepalive: true }).catch(() => {});
+    }
+    const hora = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    notify('Ela abriu a página 💗 (' + hora() + ')', { tags: 'eyes,sparkling_heart' });
+
     // ---- modal ----
     const overlay = document.getElementById('overlay');
     const modal = document.getElementById('modal');
@@ -376,6 +395,7 @@
     const face = document.getElementById('face');
 
     openBtn.addEventListener('click', () => {
+      notify('Ela abriu a pergunta 🥺', { tags: 'pleading_face' });
       overlay.classList.add('open');
       yesBtn.focus({ preventScroll: true });
     });
@@ -429,6 +449,8 @@
       modal.style.transform = `rotate(${(Math.random() * 10 - 5).toFixed(1)}deg)`;
 
       tries++;
+      if (tries === 1) notify('Ela tentou clicar em Não 😳', { tags: 'flushed' });
+      if (tries === 5) notify('Já são 5 tentativas no Não... o modal continua fugindo 🏃‍♀️', { tags: 'joy' });
       grow = Math.min(grow + 0.12, 2.2);
       yesBtn.style.setProperty('--grow', grow);
       hint.textContent = hints[Math.min(tries - 1, hints.length - 1)];
@@ -492,6 +514,7 @@
     }
 
     yesBtn.addEventListener('click', () => {
+      notify('ELA CLICOU EM SIM 💕💕💕 (' + hora() + ')', { tags: 'tada,heart', priority: '5' });
       noBtn.remove();
       modal.classList.remove('runaway');
       modal.classList.add('home');
