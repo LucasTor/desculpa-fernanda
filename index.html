@@ -377,13 +377,33 @@
       try { return localStorage.getItem('sou-eu') === '1'; } catch (_) { return false; }
     }
     const isLocal = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    // quem está abrindo? (fuso do aparelho + tipo de navegador)
+    const ua = navigator.userAgent || '';
+    const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '?');
+    const offset = new Date().getTimezoneOffset(); // Brasil fica entre UTC-2 e UTC-5 → 120..300
+    const noBrasil = offset >= 120 && offset <= 300;
+    const uaRobo = navigator.webdriver ||
+      /bot|crawl|spider|headless|preview|facebookexternalhit|whatsapp|telegram|slack|discord|twitter|linkedin|skype|google|bing|embedly|pinterest|snapchat|lighthouse|phantom|puppeteer|playwright/i.test(ua);
+    const robo = uaRobo || !noBrasil;
+    const aparelho = /iPhone|iPad/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'outro';
+    const app = /Instagram/i.test(ua) ? 'Instagram' : /FBAN|FBAV/.test(ua) ? 'Facebook' : /WhatsApp/i.test(ua) ? 'WhatsApp' : /Telegram/i.test(ua) ? 'Telegram' : /CriOS|Chrome/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : '?';
+    const origem = aparelho + ' · ' + app + ' · ' + tz;
+
     function notify(msg, opts = {}) {
       if (souEu() || isLocal) return;
-      const q = new URLSearchParams({ title: 'desculpa-fernanda', tags: opts.tags || 'sparkling_heart', priority: opts.priority || '3' });
-      fetch('https://ntfy.sh/' + NTFY_TOPIC + '?' + q.toString(), { method: 'POST', body: msg, keepalive: true }).catch(() => {});
+      const texto = (robo ? '🤖 provável robô: ' : '') + msg + ' [' + origem + ']';
+      const q = new URLSearchParams({
+        title: 'desculpa-fernanda',
+        tags: robo ? 'robot' : (opts.tags || 'sparkling_heart'),
+        priority: robo ? '1' : (opts.priority || '3'),
+      });
+      fetch('https://ntfy.sh/' + NTFY_TOPIC + '?' + q.toString(), { method: 'POST', body: texto, keepalive: true }).catch(() => {});
     }
     const hora = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    notify('Ela abriu a página 💗 (' + hora() + ')', { tags: 'eyes,sparkling_heart' });
+    // avisa a abertura uma vez por aba (refresh não repete)
+    let jaAvisou = false;
+    try { jaAvisou = sessionStorage.getItem('abriu') === '1'; sessionStorage.setItem('abriu', '1'); } catch (_) {}
+    if (!jaAvisou) notify('Ela abriu a página 💗 (' + hora() + ')', { tags: 'eyes,sparkling_heart' });
 
     // ---- modal ----
     const overlay = document.getElementById('overlay');
