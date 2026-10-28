@@ -366,18 +366,28 @@
       }
     })();
 
+    // ---- elementos ----
+    const overlay = document.getElementById('overlay');
+    const modal = document.getElementById('modal');
+    const openBtn = document.getElementById('openBtn');
+    const yesBtn = document.getElementById('yesBtn');
+    const noBtn = document.getElementById('noBtn');
+    const hint = document.getElementById('hint');
+    const face = document.getElementById('face');
+
     // ---- notificações (ntfy.sh) ----
     // Abra ?eu=1 uma vez no SEU aparelho pra ele nunca mais disparar avisos.
     const NTFY_TOPIC = 'desculpa-fernanda-41bq76gk4yz3';
     const params = new URLSearchParams(location.search);
-    try {
-      if (params.has('eu')) localStorage.setItem('sou-eu', '1');
-    } catch (_) {}
-    function souEu() {
-      try { return localStorage.getItem('sou-eu') === '1'; } catch (_) { return false; }
-    }
+    const ls = {
+      get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+      set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
+    };
+    if (params.has('eu')) ls.set('sou-eu', '1');
+    const souEu = () => ls.get('sou-eu') === '1';
     const isLocal = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-    // quem está abrindo? (fuso do aparelho + tipo de navegador)
+
+    // quem está abrindo? (fuso do aparelho + tipo de navegador + id do navegador)
     const ua = navigator.userAgent || '';
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '?');
     const offset = new Date().getTimezoneOffset(); // Brasil fica entre UTC-2 e UTC-5 → 120..300
@@ -387,7 +397,10 @@
     const robo = uaRobo || !noBrasil;
     const aparelho = /iPhone|iPad/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'outro';
     const app = /Instagram/i.test(ua) ? 'Instagram' : /FBAN|FBAV/.test(ua) ? 'Facebook' : /WhatsApp/i.test(ua) ? 'WhatsApp' : /Telegram/i.test(ua) ? 'Telegram' : /CriOS|Chrome/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : '?';
-    const origem = aparelho + ' · ' + app + ' · ' + tz;
+    let bid = ls.get('bid');
+    if (!bid) { bid = Math.random().toString(36).slice(2, 6); ls.set('bid', bid); }
+    const visitas = (parseInt(ls.get('visitas') || '0', 10) || 0) + 1;
+    const origem = aparelho + ' · ' + app + ' · ' + tz.replace('America/', '') + ' · #' + bid + ' · ' + visitas + 'ª visita';
 
     function notify(msg, opts = {}) {
       if (souEu() || isLocal) return;
@@ -397,25 +410,95 @@
         tags: robo ? 'robot' : (opts.tags || 'sparkling_heart'),
         priority: robo ? '1' : (opts.priority || '3'),
       });
-      fetch('https://ntfy.sh/' + NTFY_TOPIC + '?' + q.toString(), { method: 'POST', body: texto, keepalive: true }).catch(() => {});
+      const url = 'https://ntfy.sh/' + NTFY_TOPIC + '?' + q.toString();
+      if (opts.beacon && navigator.sendBeacon) { navigator.sendBeacon(url, texto); return; }
+      fetch(url, { method: 'POST', body: texto, keepalive: true }).catch(() => {});
     }
     const hora = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    // avisa a abertura uma vez por aba (refresh não repete)
+
+    // tempo REAL com a página na tela (pausa quando a aba fica em segundo plano)
+    let visivelDesde = null, acumulado = 0;
+    const visivel = () => document.visibilityState === 'visible' && !document.prerendering;
+    function tempoVisivel() {
+      return Math.round((acumulado + (visivelDesde ? performance.now() - visivelDesde : 0)) / 1000);
+    }
+    function atualizaVisibilidade() {
+      if (visivel()) { if (visivelDesde === null) visivelDesde = performance.now(); }
+      else if (visivelDesde !== null) { acumulado += performance.now() - visivelDesde; visivelDesde = null; }
+    }
+    document.addEventListener('visibilitychange', atualizaVisibilidade);
+    document.addEventListener('prerenderingchange', atualizaVisibilidade);
+    atualizaVisibilidade();
+
+    // quanto ela rolou + se chegou no botão
+    let maxRolagem = 0, chegouNoBotao = false, mouseNoBotao = false;
+    function mede() {
+      const doc = document.documentElement;
+      const total = Math.max(1, doc.scrollHeight - window.innerHeight);
+      maxRolagem = Math.max(maxRolagem, Math.min(100, Math.round((window.scrollY / total) * 100)));
+    }
+    window.addEventListener('scroll', mede, { passive: true });
+
+    // "abriu" só conta quando a página está de fato na tela (ignora pré-carregamento / aba em segundo plano)
+    function quandoVisivel(cb) {
+      if (visivel()) return cb();
+      const h = () => { if (visivel()) { document.removeEventListener('visibilitychange', h); document.removeEventListener('prerenderingchange', h); cb(); } };
+      document.addEventListener('visibilitychange', h);
+      document.addEventListener('prerenderingchange', h);
+    }
     let jaAvisou = false;
-    try { jaAvisou = sessionStorage.getItem('abriu') === '1'; sessionStorage.setItem('abriu', '1'); } catch (_) {}
-    if (!jaAvisou) notify('Ela abriu a página 💗 (' + hora() + ')', { tags: 'eyes,sparkling_heart' });
+    try { jaAvisou = sessionStorage.getItem('abriu') === '1'; } catch (_) {}
+    quandoVisivel(() => {
+      if (jaAvisou) return;
+      try { sessionStorage.setItem('abriu', '1'); } catch (_) {}
+      ls.set('visitas', String(visitas));
+      let ref = '';
+      try { ref = document.referrer ? new URL(document.referrer).hostname : ''; } catch (_) {}
+      const tela = screen.width + '×' + screen.height;
+      notify('Ela abriu a página 💗 (' + hora() + ')' + (ref ? ' · veio de ' + ref : '') + ' · tela ' + tela, { tags: 'eyes,sparkling_heart' });
+      mede();
+      // botão precisa de rolagem? então avisa quando ela chegar nele
+      const r = openBtn.getBoundingClientRect();
+      const visivelNoLoad = r.bottom <= window.innerHeight;
+      if (!visivelNoLoad && 'IntersectionObserver' in window) {
+        const io = new IntersectionObserver((es) => {
+          if (es.some(e => e.isIntersecting)) { chegouNoBotao = true; io.disconnect(); notify('Rolou até o botão 👀 (' + tempoVisivel() + 's)', { tags: 'eyes', priority: '2' }); }
+        }, { threshold: 0.9 });
+        io.observe(openBtn);
+      } else { chegouNoBotao = true; }
+    });
+
+    // mouse em cima do botão "Tenho uma perguntinha" (só desktop)
+    openBtn.addEventListener('mouseenter', () => {
+      if (mouseNoBotao) return;
+      mouseNoBotao = true;
+      notify('Passou o mouse no botão "Tenho uma perguntinha" 🫣 (' + tempoVisivel() + 's)', { tags: 'eyes', priority: '2' });
+    });
+
+    // ao sair / minimizar: resumo da visita (uma vez por aba)
+    let resumoEnviado = false;
+    function resumo() {
+      if (resumoEnviado || !jaAvisouAgora()) return;
+      resumoEnviado = true;
+      atualizaVisibilidade(); mede();
+      const partes = [
+        'Saiu após ' + tempoVisivel() + 's de leitura',
+        'rolou ' + maxRolagem + '%',
+        chegouNoBotao ? (mouseNoBotao ? 'mouse no botão: sim' : 'viu o botão') : 'não chegou no botão',
+        'pergunta: ' + (overlay.classList.contains('open') ? 'abriu' : 'não abriu'),
+        'Não: ' + tries + 'x',
+        modal.classList.contains('done') ? 'SIM ✅' : null,
+      ].filter(Boolean);
+      notify(partes.join(' · ') + ' 📋', { tags: 'clipboard', priority: '2', beacon: true });
+    }
+    function jaAvisouAgora() { try { return sessionStorage.getItem('abriu') === '1'; } catch (_) { return true; } }
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') resumo(); });
+    window.addEventListener('pagehide', resumo);
 
     // ---- modal ----
-    const overlay = document.getElementById('overlay');
-    const modal = document.getElementById('modal');
-    const openBtn = document.getElementById('openBtn');
-    const yesBtn = document.getElementById('yesBtn');
-    const noBtn = document.getElementById('noBtn');
-    const hint = document.getElementById('hint');
-    const face = document.getElementById('face');
 
     openBtn.addEventListener('click', () => {
-      notify('Ela abriu a pergunta 🥺', { tags: 'pleading_face' });
+      notify('Ela abriu a pergunta 🥺 (depois de ' + tempoVisivel() + 's na página)', { tags: 'pleading_face', priority: '4' });
       overlay.classList.add('open');
       yesBtn.focus({ preventScroll: true });
     });
@@ -534,7 +617,7 @@
     }
 
     yesBtn.addEventListener('click', () => {
-      notify('ELA CLICOU EM SIM 💕💕💕 (' + hora() + ')', { tags: 'tada,heart', priority: '5' });
+      notify('ELA CLICOU EM SIM 💕💕💕 (' + hora() + ', depois de ' + tries + ' tentativa(s) no Não e ' + tempoVisivel() + 's na página)', { tags: 'tada,heart', priority: '5' });
       noBtn.remove();
       modal.classList.remove('runaway');
       modal.classList.add('home');
