@@ -482,8 +482,9 @@
     });
 
     // mouse em cima do botão "Tenho uma perguntinha" (só desktop)
+    const temMouse = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     openBtn.addEventListener('mouseenter', () => {
-      if (mouseNoBotao) return;
+      if (mouseNoBotao || !temMouse) return;
       mouseNoBotao = true;
       notify('Passou o mouse no botão "Tenho uma perguntinha" 🫣 (' + tempoVisivel() + 's)', { tags: 'eyes', priority: '2' });
     });
